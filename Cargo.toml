@@ -1,0 +1,43 @@
+[package]
+name = "KHAT-server"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = "0.23"
+tokio-util = { version = "0.7", features = ["io"] }
+tungstenite = "0.23"
+futures-util = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+axum = { version = "0.7", features = ["multipart"] }
+rusqlite = { version = "0.33", features = ["bundled"] }
+r2d2 = "0.8"
+r2d2_sqlite = "0.26"
+bcrypt = "0.15"
+rand = "0.8"
+hex = "0.4"
+image = { version = "0.25", features = ["avif", "jpeg", "png", "webp", "gif", "bmp", "tiff"] }
+lofty = "0.22"
+resvg = "0.45"
+tiny-skia = "0.11"
+ab_glyph = "0.2"
+chrono = "0.4"
+colored = "2"
+dashmap = "5"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tokio-stream = "0.1"
+anyhow = "1"
+thiserror = "1"
+multer = "3.0"
+infer = "0.16"
+sha2 = "0.10"
+ort = { version = "2.0.0-rc.13" }
+tokenizers = "0.19"
+levenshtein = "1.0"
+ndarray = "0.15"
+regex = "1.10"
+url = "2"
+apk-info = "1.0.12"

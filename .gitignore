@@ -1,0 +1,6 @@
+/target
+/face_model
+/lang_model
+/src/LOGGER.py
+/src/rust_files_content.txt
+Cargo.lock
