@@ -417,8 +417,15 @@ pub async fn handle_text_message(
                 .clone();
             let hashes = payload.hashes.clone().ok_or("Missing 'hashes'")?;
 
-            let response =
-                handlers::add_conversation_lock(Arc::clone(db), user, with, hashes, config).await;
+            let response = handlers::add_conversation_lock(
+                Arc::clone(db),
+                user,
+                with,
+                hashes,
+                config,
+                peer_addr,
+            )
+            .await;
             send_response(sender, &response, config.debug).await?;
         }
         "open_conversation_lock" => {
@@ -432,8 +439,15 @@ pub async fn handle_text_message(
             let hashes = payload.hashes.clone().ok_or("Missing 'hashes'")?;
             let hash = hashes.into_iter().next().ok_or("Missing hash")?;
 
-            let response =
-                handlers::open_conversation_lock(Arc::clone(db), user, with, hash, config).await;
+            let response = handlers::open_conversation_lock(
+                Arc::clone(db),
+                user,
+                with,
+                hash,
+                config,
+                peer_addr,
+            )
+            .await;
             send_response(sender, &response, config.debug).await?;
         }
         unknown => {
@@ -525,10 +539,17 @@ async fn handle_search_user(
     payload: &RequestPayload,
     config: &Config,
 ) -> Result<(), String> {
-    require_auth_or_return!(sender, auth, config.debug);
+    let current_user = require_auth_or_return!(sender, auth, config.debug);
     let username = extract_field(payload, "username")?;
-    let response =
-        handlers::handle_search_user(Arc::clone(db), Arc::clone(online_users), username).await;
+
+    let response = handlers::handle_search_user(
+        Arc::clone(db),
+        Arc::clone(online_users),
+        current_user,
+        username,
+    )
+    .await;
+
     send_response(sender, &response, config.debug).await
 }
 

@@ -198,23 +198,30 @@ async fn upload_handler(
         .db
         .call({
             let t = token.clone();
-            move |d| d.take_pending_face_upload(&t)
+            move |d| {
+                let pending = d.get_pending_face_upload(&t)?;
+                let meta = d.get_temp_upload_by_token(&t)?;
+                Ok::<_, crate::db::DbError>((pending, meta))
+            }
         })
         .await
         .map_err(|_| AppError::Internal)?;
 
-    if let Some(pending) = pending_face {
+    if let (Some(pending), Some(meta)) = pending_face {
+        validate_upload_request(&state, &meta, &addr)?;
+
         let response =
             handle_face_lock_upload(Arc::clone(&state), token.clone(), pending, multipart).await;
 
-        if let Ok(Some(meta)) = state
-            .db
-            .call({
-                let t = token.clone();
-                move |d| d.get_temp_upload_by_token(&t)
-            })
-            .await
-        {
+        if response.is_ok() {
+            let _ = state
+                .db
+                .call({
+                    let t = token.clone();
+                    move |d| d.delete_pending_face_upload(&t)
+                })
+                .await;
+
             let id = meta.id;
             let _ = state.db.call(move |d| d.delete_file_metadata(id)).await;
         }

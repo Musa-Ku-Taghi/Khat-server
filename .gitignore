@@ -4,3 +4,7 @@
 /src/LOGGER.py
 /src/rust_files_content.txt
 Cargo.lock
+/uploads
+/temp_uploads
+users.db
+config.json

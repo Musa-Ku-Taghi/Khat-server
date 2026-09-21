@@ -56,7 +56,8 @@ impl FaceDetector {
     }
 
     pub fn embed_file(&mut self, path: &Path) -> Result<Vec<f32>> {
-        let img = image::open(path)?.into_rgb8();
+        let data = std::fs::read(path)?;
+        let img = image::load_from_memory(&data)?.into_rgb8();
         self.embed_rgb(&img)
     }
 

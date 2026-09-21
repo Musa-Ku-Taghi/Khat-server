@@ -125,6 +125,7 @@ pub struct UserSearchResult {
     pub username: String,
     pub online: bool,
     pub profile_picture_url: Option<String>,
+    pub locked: bool,
 }
 
 #[derive(Debug, Serialize)]

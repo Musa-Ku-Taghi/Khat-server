@@ -8,12 +8,7 @@
   "db_journal_mode": "WAL",
   "db_synchronous": "NORMAL",
   "iccid_pepper": "",
-  "allowed_ccs": [
-    "98",
-    "01",
-    "31",
-    "86"
-  ],
+  "allowed_ccs": ["98", "01", "31", "86"],
   "bcrypt_cost": 12,
   "max_iccid_length": 20,
   "max_username_length": 50,
@@ -118,5 +113,5 @@
   "face_model_enabled": true,
   "face_model_dir": "./face_model",
   "face_verify_threshold": 0.61,
-  "debug": false
+  "debug": true
 }

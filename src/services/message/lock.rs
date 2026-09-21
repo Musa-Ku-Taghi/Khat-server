@@ -49,6 +49,7 @@ pub async fn add_conversation_lock(
     partner_username: String,
     hashes: Vec<String>,
     config: &Config,
+    requester_ip: &str,
 ) -> AddConversationLockResponse {
     if hashes.len() != 3 {
         return add_err(ResponseStatus::InvalidInput, "Expected exactly 3 hashes");
@@ -101,7 +102,7 @@ pub async fn add_conversation_lock(
         error!("add_conversation_lock: create failed: {e}");
         return add_err(ResponseStatus::Error, "Database error");
     }
-
+    let requester_ip = requester_ip.to_string();
     let mut upload_urls = Vec::with_capacity(3);
     for slot in 0..3_i32 {
         let token = gen_token(config.temp_token_bytes);
@@ -114,6 +115,7 @@ pub async fn add_conversation_lock(
         let create_temp = db
             .call({
                 let t = token.clone();
+                let ip = requester_ip.clone();
                 move |d| {
                     d.create_temp_upload(
                         &hash,
@@ -125,7 +127,7 @@ pub async fn add_conversation_lock(
                         Some(owner_id),
                         UploadType::FaceLockRef,
                         &temp_dir,
-                        "",
+                        &ip,
                     )
                 }
             })
@@ -167,6 +169,7 @@ pub async fn open_conversation_lock(
     partner_username: String,
     _hash: String,
     config: &Config,
+    requester_ip: &str,
 ) -> OpenConversationLockResponse {
     let owner_id = match {
         let u = current_user.clone();
@@ -209,10 +212,11 @@ pub async fn open_conversation_lock(
     let temp_dir = config.temp_upload_dir.clone();
     let name = format!("face_lock_probe_{current_user}");
     let hash = format!("facelock_{token}");
-
+    let requester_ip = requester_ip.to_string();
     let create_temp = db
         .call({
             let t = token.clone();
+            let ip = requester_ip.clone();
             move |d| {
                 d.create_temp_upload(
                     &hash,
@@ -224,7 +228,7 @@ pub async fn open_conversation_lock(
                     Some(owner_id),
                     UploadType::FaceLockProbe,
                     &temp_dir,
-                    "",
+                    &ip,
                 )
             }
         })

@@ -74,6 +74,38 @@ impl Database {
         }))
     }
 
+    pub fn get_pending_face_upload(
+        &self,
+        token: &str,
+    ) -> Result<Option<PendingFaceUpload>, DbError> {
+        let conn = self.get_conn()?;
+
+        conn.query_row(
+            "SELECT owner_id, partner_id, slot
+         FROM face_lock_pending_uploads
+         WHERE token = ?1",
+            [token],
+            |row| {
+                Ok(PendingFaceUpload {
+                    owner_id: row.get(0)?,
+                    partner_id: row.get(1)?,
+                    slot: row.get::<_, i64>(2)? as i32,
+                })
+            },
+        )
+        .optional()
+        .map_err(DbError::from)
+    }
+
+    pub fn delete_pending_face_upload(&self, token: &str) -> Result<(), DbError> {
+        let conn = self.get_conn()?;
+        conn.execute(
+            "DELETE FROM face_lock_pending_uploads WHERE token = ?1",
+            [token],
+        )?;
+        Ok(())
+    }
+
     pub fn create_conversation_lock(
         &self,
         owner_id: i64,
