@@ -426,6 +426,7 @@ pub async fn handle_text_message(
                 peer_addr,
             )
             .await;
+
             send_response(sender, &response, config.debug).await?;
         }
         "open_conversation_lock" => {
@@ -436,8 +437,13 @@ pub async fn handle_text_message(
                 .filter(|s| !s.is_empty())
                 .ok_or("Missing 'with'")?
                 .clone();
-            let hashes = payload.hashes.clone().ok_or("Missing 'hashes'")?;
-            let hash = hashes.into_iter().next().ok_or("Missing hash")?;
+
+            let hash = payload
+                .hash
+                .as_ref()
+                .filter(|s| !s.is_empty())
+                .ok_or("Missing 'hash'")?
+                .clone();
 
             let response = handlers::open_conversation_lock(
                 Arc::clone(db),
@@ -448,6 +454,7 @@ pub async fn handle_text_message(
                 peer_addr,
             )
             .await;
+
             send_response(sender, &response, config.debug).await?;
         }
         unknown => {

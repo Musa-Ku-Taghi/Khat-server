@@ -245,6 +245,7 @@ pub struct FaceDetectionResponse {
     #[serde(rename = "type")]
     pub msg_type: String,
     pub status: String,
+    pub with: String,
 }
 
 #[derive(Debug, Serialize)]

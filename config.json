@@ -112,6 +112,6 @@
   "model_dir": "./lang_model",
   "face_model_enabled": true,
   "face_model_dir": "./face_model",
-  "face_verify_threshold": 0.61,
+  "face_verify_threshold": 0.3,
   "debug": true
 }

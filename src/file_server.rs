@@ -1241,14 +1241,25 @@ async fn handle_face_lock_probe(
         info!("face-lock probe: marked {owner_name} -> {partner_name} verified");
     }
 
-    push_face_detection_response(state, owner_id, verdict).await;
+    push_face_detection_response(state, owner_id, partner_id, verdict).await;
 }
 
-async fn push_face_detection_response(state: &Arc<AppState>, owner_id: i64, verdict: Verdict) {
-    let owner_name = match state.db.call(move |d| d.get_username_by_id(owner_id)).await {
-        Ok(n) => n,
-        Err(e) => {
-            error!("push_face_detection_response: owner lookup failed: {e}");
+async fn push_face_detection_response(
+    state: &Arc<AppState>,
+    owner_id: i64,
+    partner_id: i64,
+    verdict: Verdict,
+) {
+    let (owner_name, partner_name) = match (
+        state.db.call(move |d| d.get_username_by_id(owner_id)).await,
+        state
+            .db
+            .call(move |d| d.get_username_by_id(partner_id))
+            .await,
+    ) {
+        (Ok(owner), Ok(partner)) => (owner, partner),
+        _ => {
+            error!("push_face_detection_response: username lookup failed");
             return;
         }
     };
@@ -1266,9 +1277,11 @@ async fn push_face_detection_response(state: &Arc<AppState>, owner_id: i64, verd
     let payload = FaceDetectionResponse {
         msg_type: "face_detection_response".to_string(),
         status: verdict.as_status().to_string(),
+        with: partner_name,
     };
 
     let debug = state.config.debug;
+
     for sink in sinks {
         let payload = payload.clone();
         tokio::spawn(async move {
