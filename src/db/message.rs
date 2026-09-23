@@ -115,15 +115,15 @@ impl Database {
         let conn = self.get_conn()?;
         let mut stmt = conn.prepare(
             "SELECT d.id, s.username, r.username, d.content,
-                    strftime('%Y-%m-%dT%H:%M:%S', d.timestamp) AS timestamp, d.read,
-                    strftime('%Y-%m-%dT%H:%M:%S', d.edited_at) AS edited_at
-             FROM direct_messages d
-             JOIN users s ON d.sender_id = s.id
-             JOIN users r ON d.recipient_id = r.id
-             WHERE (d.sender_id = ?1 AND d.recipient_id = ?2)
-                OR (d.sender_id = ?2 AND d.recipient_id = ?1)
-             ORDER BY d.timestamp DESC
-             LIMIT ?3 OFFSET ?4",
+                strftime('%Y-%m-%dT%H:%M:%S', d.timestamp) AS timestamp, d.read,
+                strftime('%Y-%m-%dT%H:%M:%S', d.edited_at) AS edited_at
+         FROM direct_messages d
+         JOIN users s ON d.sender_id = s.id
+         JOIN users r ON d.recipient_id = r.id
+         WHERE (d.sender_id = ?1 AND d.recipient_id = ?2)
+            OR (d.sender_id = ?2 AND d.recipient_id = ?1)
+         ORDER BY d.timestamp ASC, d.id ASC
+         LIMIT ?3 OFFSET ?4",
         )?;
 
         let rows = stmt.query_map(params![user1_id, user2_id, limit, offset], |row| {
@@ -133,6 +133,7 @@ impl Database {
             })?;
 
             let mut enriched = Vec::with_capacity(content.len());
+
             for mut part in content {
                 if part.r#type == "file" {
                     if let Some(file_id) = part.file_id {
@@ -148,6 +149,7 @@ impl Database {
                         }
                     }
                 }
+
                 enriched.push(part);
             }
 
@@ -162,12 +164,16 @@ impl Database {
             })
         })?;
 
-        let mut messages: Vec<Message> = rows.collect::<Result<Vec<_>, _>>()?;
-        messages.reverse();
+        let messages: Vec<Message> = rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)?;
+
         Ok(messages)
     }
 
-    pub fn get_conversations_for_user(&self, user_id: i64) -> Result<Vec<Conversation>, DbError> {
+    pub fn get_conversations_for_user(
+        &self,
+        user_id: i64,
+        chunk_size: u64,
+    ) -> Result<Vec<Conversation>, DbError> {
         let mut conn = self.get_conn()?;
         let tx = conn.transaction()?;
 
@@ -216,10 +222,25 @@ impl Database {
 
             let unread_count: i64 = tx.query_row(
                 "SELECT COUNT(*) FROM direct_messages
-                 WHERE recipient_id = ?1 AND sender_id = ?2 AND read = 0",
+     WHERE recipient_id = ?1 AND sender_id = ?2 AND read = 0",
                 params![user_id, partner_id],
                 |row| row.get(0),
             )?;
+
+            let message_count: i64 = tx.query_row(
+                "SELECT COUNT(*) FROM direct_messages
+     WHERE (sender_id = ?1 AND recipient_id = ?2)
+        OR (sender_id = ?2 AND recipient_id = ?1)",
+                params![user_id, partner_id],
+                |row| row.get(0),
+            )?;
+
+            let chunk_count = if message_count == 0 {
+                0
+            } else {
+                let size = chunk_size;
+                ((message_count as u64) + size - 1) / size
+            };
 
             conversations.push(Conversation {
                 with_user,
@@ -229,6 +250,7 @@ impl Database {
                 online: false,
                 profile_picture_url: primary_file_id.map(|id| format!("/profile_pics/{id}")),
                 locked: false,
+                chunk_count,
             });
         }
 
@@ -405,6 +427,44 @@ impl Database {
         Ok(())
     }
 
+    pub fn get_conversation_chunk_count(
+        &self,
+        user1_id: i64,
+        user2_id: i64,
+        chunk_size: u64,
+    ) -> Result<u64, DbError> {
+        let conn = self.get_conn()?;
+
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*)
+         FROM direct_messages
+         WHERE (sender_id = ?1 AND recipient_id = ?2)
+            OR (sender_id = ?2 AND recipient_id = ?1)",
+            params![user1_id, user2_id],
+            |row| row.get(0),
+        )?;
+
+        if count == 0 {
+            return Ok(0);
+        }
+
+        Ok(((count as u64) + chunk_size - 1) / chunk_size)
+    }
+
+    pub fn get_message_content(&self, message_id: i64) -> Result<Vec<ContentPart>, DbError> {
+        let conn = self.get_conn()?;
+
+        let content_json: String = conn
+            .query_row(
+                "SELECT content FROM direct_messages WHERE id = ?1",
+                [message_id],
+                |row| row.get(0),
+            )
+            .map_err(|_| DbError::InvalidInput("Message not found".to_string()))?;
+
+        serde_json::from_str(&content_json).map_err(|e| DbError::DatabaseError(e.to_string()))
+    }
+
     pub fn get_message_chunk_id(&self, message_id: i64, chunk_size: u64) -> Result<u64, DbError> {
         let conn = self.get_conn()?;
 
@@ -423,26 +483,21 @@ impl Database {
          FROM direct_messages
          WHERE ((sender_id = ?1 AND recipient_id = ?2)
              OR (sender_id = ?2 AND recipient_id = ?1))
-           AND (timestamp > ?3 OR (timestamp = ?3 AND id > ?4))",
+           AND (
+                timestamp < ?3
+                OR (timestamp = ?3 AND id < ?4)
+           )",
             params![sender_id, recipient_id, timestamp, message_id],
             |row| row.get(0),
         )?;
 
+        if chunk_size == 0 {
+            return Err(DbError::InvalidInput(
+                "chunk_size must be greater than zero".to_string(),
+            ));
+        }
+
         Ok((count as u64) / chunk_size)
-    }
-
-    pub fn get_message_content(&self, message_id: i64) -> Result<Vec<ContentPart>, DbError> {
-        let conn = self.get_conn()?;
-
-        let content_json: String = conn
-            .query_row(
-                "SELECT content FROM direct_messages WHERE id = ?1",
-                [message_id],
-                |row| row.get(0),
-            )
-            .map_err(|_| DbError::InvalidInput("Message not found".to_string()))?;
-
-        serde_json::from_str(&content_json).map_err(|e| DbError::DatabaseError(e.to_string()))
     }
 }
 

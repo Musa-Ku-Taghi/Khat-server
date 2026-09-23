@@ -12,6 +12,7 @@ pub async fn search_user(
     online_users: Arc<RwLock<OnlineUsers>>,
     current_user: String,
     username: String,
+    chunk_size: u64,
 ) -> SearchUserResponse {
     let current_user_id = match {
         let current = current_user.clone();
@@ -42,16 +43,48 @@ pub async fn search_user(
 
             let online = online_users.read().await;
 
-            let results_with_status: Vec<UserSearchResult> = results
-                .into_iter()
-                .map(|(uname, primary_file_id)| UserSearchResult {
+            let mut results_with_status = Vec::with_capacity(results.len());
+
+            for (uname, primary_file_id) in results {
+                let locked =
+                    locked_partners.contains(&uname) && !online.is_verified(&current_user, &uname);
+
+                let chunk_count = match db
+                    .call({
+                        let uname = uname.clone();
+                        move |d| d.get_user_id_by_username(&uname)
+                    })
+                    .await
+                {
+                    Ok(user_id) => match db
+                        .call({
+                            let current_user_id = current_user_id;
+                            move |d| {
+                                d.get_conversation_chunk_count(current_user_id, user_id, chunk_size)
+                            }
+                        })
+                        .await
+                    {
+                        Ok(count) => count,
+                        Err(e) => {
+                            error!("Failed to get chunk_count for user '{uname}': {e}");
+                            0
+                        }
+                    },
+                    Err(e) => {
+                        error!("Failed to resolve searched user '{uname}': {e}");
+                        0
+                    }
+                };
+
+                results_with_status.push(UserSearchResult {
                     online: online.is_online(&uname),
-                    locked: locked_partners.contains(&uname)
-                        && !online.is_verified(&current_user, &uname),
+                    locked,
                     username: uname,
                     profile_picture_url: primary_file_id.map(|id| format!("/profile_pics/{id}")),
-                })
-                .collect();
+                    chunk_count,
+                });
+            }
 
             let online_count = results_with_status.iter().filter(|r| r.online).count();
 

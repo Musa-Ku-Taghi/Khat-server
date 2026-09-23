@@ -30,6 +30,7 @@ pub async fn send_message(
         Ok(false) => {}
         Err(e) => error!("send_message gate check failed: {e}"),
     }
+
     let enriched_content = match enrich_content(&db, content).await {
         Ok(c) => c,
         Err(resp) => return resp,
@@ -73,6 +74,20 @@ pub async fn send_message(
         }
     };
 
+    let chunk_id = match db
+        .call({
+            let message_id = msg_id;
+            move |d| d.get_message_chunk_id(message_id, chunk_size)
+        })
+        .await
+    {
+        Ok(id) => id,
+        Err(e) => {
+            error!("Failed to get message chunk_id: {e}");
+            return err_response("Database error");
+        }
+    };
+
     let recipient_sinks = {
         let online = online_users.read().await;
         online.get_senders(&recipient)
@@ -82,23 +97,36 @@ pub async fn send_message(
         info!("Recipient {recipient} is offline, message stored");
     } else {
         let mut outbound_content = enriched_content.clone();
-        enrich_target_chunk_ids(&db, &mut outbound_content, chunk_size).await;
+
+        for part in &mut outbound_content {
+            if part.r#type == "file" {
+                part.size = None;
+                part.hash = None;
+            }
+        }
+
         let push = NewMessagePush {
             msg_type: "new_message".to_string(),
             sender: sender_username.clone(),
             content: outbound_content,
-            timestamp,
+            timestamp: timestamp.clone(),
+            chunk_id,
+            id: msg_id,
+            edited_at: None,
         };
+
         for sink in &recipient_sinks {
             let sink = sink.clone();
             let push = push.clone();
             let recip = recipient.clone();
+
             tokio::spawn(async move {
                 if let Err(e) = crate::server::send_response(&sink, &push, debug).await {
                     error!("Failed to push new_message to {recip}: {e}");
                 }
             });
         }
+
         info!(
             "Pushed new_message to {} online devices of {recipient}",
             recipient_sinks.len()
@@ -106,13 +134,13 @@ pub async fn send_message(
     }
 
     info!("Message from {sender_username} to {recipient} sent successfully");
+
     SendMessageResponse {
         msg_type: "send_message_response".to_string(),
         status: ResponseStatus::Success,
         message: None,
     }
 }
-
 async fn enrich_content(
     db: &Arc<Database>,
     content: Vec<ContentPart>,

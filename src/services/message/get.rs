@@ -116,6 +116,7 @@ pub async fn get_conversations(
     db: Arc<Database>,
     online_users: Arc<RwLock<OnlineUsers>>,
     current_user: String,
+    chunk_size: u64,
 ) -> GetConversationsResponse {
     let user_id = match {
         let current = current_user.clone();
@@ -134,19 +135,58 @@ pub async fn get_conversations(
     };
 
     let conversations: Result<Vec<Conversation>, DbError> = db
-        .call(move |d| d.get_conversations_for_user(user_id))
+        .call(move |d| d.get_conversations_for_user(user_id, chunk_size))
         .await;
 
     match conversations {
         Ok(mut convs) => {
             enrich_conversation_files(&db, &mut convs).await;
 
+            for conv in &mut convs {
+                let with_user = conv.with_user.clone();
+
+                let with_user_id = match db
+                    .call({
+                        let with_user = with_user.clone();
+                        move |d| d.get_user_id_by_username(&with_user)
+                    })
+                    .await
+                {
+                    Ok(id) => id,
+                    Err(e) => {
+                        error!(
+                        "Failed to resolve conversation partner '{with_user}' for chunk_count: {e}"
+                    );
+                        conv.chunk_count = 0;
+                        continue;
+                    }
+                };
+
+                conv.chunk_count = match db
+                    .call({
+                        let user_id = user_id;
+                        move |d| d.get_conversation_chunk_count(user_id, with_user_id, chunk_size)
+                    })
+                    .await
+                {
+                    Ok(count) => count,
+                    Err(e) => {
+                        error!(
+                            "Failed to get chunk_count for conversation with '{with_user}': {e}"
+                        );
+                        0
+                    }
+                };
+            }
+
             let locked_partners = locked_partner_names(&db, user_id).await;
 
             {
                 let online = online_users.read().await;
+
                 for conv in &mut convs {
                     conv.online = online.is_online(&conv.with_user);
+
                     if locked_partners.contains(&conv.with_user)
                         && !online.is_verified(&current_user, &conv.with_user)
                     {
@@ -157,6 +197,7 @@ pub async fn get_conversations(
             }
 
             info!("Retrieved {} conversations for {current_user}", convs.len());
+
             GetConversationsResponse {
                 msg_type: "get_conversations_response".to_string(),
                 status: ResponseStatus::Success,
@@ -164,13 +205,15 @@ pub async fn get_conversations(
                 message: None,
             }
         }
+
         Err(e) => {
-            error!("Failed to get conversations: {e}");
+            error!("Failed to get conversations for {current_user}: {e}");
+
             GetConversationsResponse {
                 msg_type: "get_conversations_response".to_string(),
                 status: ResponseStatus::Error,
                 conversations: None,
-                message: Some("Database error".into()),
+                message: Some("Database error".to_string()),
             }
         }
     }

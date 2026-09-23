@@ -126,6 +126,7 @@ pub struct UserSearchResult {
     pub online: bool,
     pub profile_picture_url: Option<String>,
     pub locked: bool,
+    pub chunk_count: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -154,6 +155,7 @@ pub struct Conversation {
     pub online: bool,
     pub profile_picture_url: Option<String>,
     pub locked: bool,
+    pub chunk_count: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -205,6 +207,9 @@ pub struct NewMessagePush {
     pub sender: String,
     pub content: Vec<ContentPart>,
     pub timestamp: String,
+    pub chunk_id: u64,
+    pub id: i64,
+    pub edited_at: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]

@@ -554,6 +554,7 @@ async fn handle_search_user(
         Arc::clone(online_users),
         current_user,
         username,
+        config.chunk_size,
     )
     .await;
 
@@ -568,8 +569,13 @@ async fn handle_get_conversations(
     config: &Config,
 ) -> Result<(), String> {
     let user = require_auth_or_return!(sender, auth, config.debug);
-    let response =
-        handlers::handle_get_conversations(Arc::clone(db), Arc::clone(online_users), user).await;
+    let response = handlers::handle_get_conversations(
+        Arc::clone(db),
+        Arc::clone(online_users),
+        user,
+        config.chunk_size,
+    )
+    .await;
     send_response(sender, &response, config.debug).await
 }
 

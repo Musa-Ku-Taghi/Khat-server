@@ -94,6 +94,19 @@ fn extension_for_format(format_str: &str) -> &'static str {
         _ => "jpg",
     }
 }
+fn load_image_with_orientation(data: &[u8]) -> image::ImageResult<image::DynamicImage> {
+    use image::ImageDecoder;
+    use std::io::Cursor;
+
+    let reader = image::ImageReader::new(Cursor::new(data)).with_guessed_format()?;
+    let mut decoder = reader.into_decoder()?;
+    let orientation = decoder.orientation()?;
+    let mut img = image::DynamicImage::from_decoder(decoder)?;
+
+    img.apply_orientation(orientation);
+
+    Ok(img)
+}
 
 fn save_thumb(
     img: &image::DynamicImage,
@@ -172,7 +185,7 @@ fn read_cover_art(
         return None;
     }
 
-    let img = match image::load_from_memory(data) {
+    let img = match load_image_with_orientation(data) {
         Ok(i) => i,
         Err(e) => {
             warn!("Failed to decode embedded cover art: {e}");
@@ -716,7 +729,7 @@ async fn apk_thumb(path: &StdPath, ctx: ThumbCtx) -> AppResult<Option<PathBuf>> 
                 }
             };
 
-            let img = match image::load_from_memory(&data) {
+            let img = match load_image_with_orientation(&data) {
                 Ok(img) => img,
                 Err(e) => {
                     warn!(
@@ -780,16 +793,19 @@ async fn image_thumb(path: &StdPath, ctx: ThumbCtx) -> AppResult<Option<PathBuf>
     let path = path.to_path_buf();
     let result = tokio::task::spawn_blocking(move || {
         let data = std::fs::read(&path).ok()?;
-        let img = image::load_from_memory(&data)
+        let img = load_image_with_orientation(&data)
             .map_err(|e| error!("Failed to decode image: {e}"))
             .ok()?;
+
         let new_w = ((img.width() as f64 * ctx.scale) as u32).max(1);
         let new_h = ((img.height() as f64 * ctx.scale) as u32).max(1);
         let thumb = img.resize(new_w, new_h, FilterType::Lanczos3);
+
         save_thumb(&thumb, &path, &ctx.format, ctx.quality, &ctx.suffix)
     })
     .await
     .map_err(|_| AppError::Internal)?;
+
     Ok(result)
 }
 
