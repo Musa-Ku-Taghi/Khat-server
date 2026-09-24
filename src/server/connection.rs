@@ -44,28 +44,49 @@ async fn heartbeat_task(
     last_pong: Arc<Mutex<Instant>>,
     ping_interval: Duration,
     pong_timeout: Duration,
-    cancel_token: CancellationToken,
+    server_cancel_token: CancellationToken,
+    connection_cancel_token: CancellationToken,
 ) {
     loop {
         tokio::select! {
-            _ = cancel_token.cancelled() => {
+            _ = server_cancel_token.cancelled() => {
                 info!("Heartbeat task cancelled");
                 break;
             }
+
+            _ = connection_cancel_token.cancelled() => {
+                break;
+            }
+
             _ = sleep(ping_interval) => {
                 debug!("Sending ping");
+
                 if sender.lock().await.send(Message::Ping(vec![])).await.is_err() {
                     warn!("Failed to send ping, connection likely closed");
                     break;
                 }
 
                 let ping_sent = Instant::now();
-                sleep(pong_timeout).await;
 
-                if *last_pong.lock().await < ping_sent {
-                    warn!("Pong timeout, closing connection");
-                    let _ = sender.lock().await.send(Message::Close(None)).await;
-                    break;
+                tokio::select! {
+                    _ = sleep(pong_timeout) => {
+                        if *last_pong.lock().await < ping_sent {
+                            warn!("Pong timeout, closing connection");
+
+                            let _ = sender.lock().await.send(Message::Close(None)).await;
+
+                            connection_cancel_token.cancel();
+                            break;
+                        }
+                    }
+
+                    _ = server_cancel_token.cancelled() => {
+                        break;
+                    }
+
+                    _ = connection_cancel_token.cancelled() => {
+                        break;
+                    }
                 }
             }
         }
@@ -97,15 +118,29 @@ pub async fn handle_connection(
     let heartbeat_handle = {
         let sender = Arc::clone(&sender);
         let last_pong = Arc::clone(&last_pong);
-        let token = cancel_token.clone();
+        let server_token = cancel_token.clone();
+        let connection_cancel_token = CancellationToken::new();
+        let connection_token = connection_cancel_token.clone();
+
         let ping_interval = Duration::from_secs(config.ping_interval_secs);
         let pong_timeout = Duration::from_secs(config.pong_timeout_secs);
+
         tokio::spawn(async move {
-            heartbeat_task(sender, last_pong, ping_interval, pong_timeout, token).await
+            heartbeat_task(
+                sender,
+                last_pong,
+                ping_interval,
+                pong_timeout,
+                server_token,
+                connection_token,
+            )
+            .await
         })
     };
 
     let mut authenticated_username: Option<(String, String)> = None;
+
+    let connection_cancel_token = CancellationToken::new();
 
     loop {
         tokio::select! {
@@ -115,6 +150,7 @@ pub async fn handle_connection(
                         if config.debug {
                             debug!("RECEIVED: {text}");
                         }
+
                         if let Err(e) = handle_text_message(
                             &sender,
                             &db,
@@ -132,28 +168,39 @@ pub async fn handle_connection(
                             error!("Error handling message from {peer_addr}: {e}");
                         }
                     }
+
                     Some(Ok(Message::Close(_))) => {
                         info!("Connection closed by {peer_addr}");
                         break;
                     }
+
                     Some(Ok(Message::Pong(_))) => {
                         *last_pong.lock().await = Instant::now();
                         debug!("Pong received");
                     }
+
                     Some(Ok(Message::Binary(_))) => {
                         warn!("Binary messages not supported from {peer_addr}");
                     }
+
                     Some(Ok(_)) => continue,
+
                     Some(Err(e)) => {
                         error!("WebSocket error: {e}");
                         break;
                     }
+
                     None => {
                         info!("Connection closed by {peer_addr}");
                         break;
                     }
                 }
             }
+
+            _ = connection_cancel_token.cancelled() => {
+                break;
+            }
+
             _ = cancel_token.cancelled() => {
                 info!("Shutdown signalled, exiting connection loop");
                 break;

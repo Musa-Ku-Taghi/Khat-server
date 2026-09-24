@@ -45,12 +45,27 @@ pub async fn get_messages_chunk(
 
     let chunk = match chunk_spec {
         ChunkSpec::Number(n) => n,
-        ChunkSpec::Unread => db
-            .call(move |d| d.get_unread_offset_for_conversation(current_id, other_id, chunk_size))
+        ChunkSpec::Unread => match db
+            .call({
+                let current_id = current_id;
+                let other_id = other_id;
+                move |d| d.get_unread_offset_for_conversation(current_id, other_id, chunk_size)
+            })
             .await
             .ok()
             .flatten()
-            .unwrap_or(0),
+        {
+            Some(chunk) => chunk,
+            None => db
+                .call({
+                    let current_id = current_id;
+                    let other_id = other_id;
+                    move |d| d.get_conversation_chunk_count(current_id, other_id, chunk_size)
+                })
+                .await
+                .unwrap_or(0)
+                .saturating_sub(1),
+        },
     };
 
     let offset = (chunk * chunk_size) as i64;

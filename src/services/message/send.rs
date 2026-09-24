@@ -24,6 +24,11 @@ pub async fn send_message(
             return SendMessageResponse {
                 msg_type: "send_message_response".to_string(),
                 status: ResponseStatus::LockedChatVerificationRequired,
+                content: None,
+                with_user: None,
+                chunk_id: None,
+                id: None,
+                timestamp: None,
                 message: Some(crate::services::message::LOCKED_MSG.to_string()),
             };
         }
@@ -138,6 +143,11 @@ pub async fn send_message(
     SendMessageResponse {
         msg_type: "send_message_response".to_string(),
         status: ResponseStatus::Success,
+        content: Some(enriched_content),
+        with_user: Some(recipient),
+        chunk_id: Some(chunk_id),
+        id: Some(msg_id),
+        timestamp: Some(timestamp),
         message: None,
     }
 }
@@ -163,6 +173,11 @@ async fn enrich_content(
                         return Err(SendMessageResponse {
                             msg_type: "send_message_response".to_string(),
                             status: ResponseStatus::InvalidInput,
+                            content: None,
+                            with_user: None,
+                            chunk_id: None,
+                            id: None,
+                            timestamp: None,
                             message: Some(format!("Invalid markdown: {e}")),
                         });
                     }
@@ -239,6 +254,11 @@ fn err_response(message: &str) -> SendMessageResponse {
     SendMessageResponse {
         msg_type: "send_message_response".to_string(),
         status: ResponseStatus::Error,
+        content: None,
+        with_user: None,
+        chunk_id: None,
+        id: None,
+        timestamp: None,
         message: Some(message.into()),
     }
 }

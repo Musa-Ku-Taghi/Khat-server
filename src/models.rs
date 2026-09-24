@@ -164,6 +164,16 @@ pub struct SendMessageResponse {
     pub msg_type: String,
     pub status: ResponseStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<Vec<ContentPart>>,
+    #[serde(rename = "with", skip_serializing_if = "Option::is_none")]
+    pub with_user: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chunk_id: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
 }
 
